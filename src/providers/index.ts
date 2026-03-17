@@ -1,19 +1,24 @@
 import type { PromptFile } from '../types/index.js';
 import type { LlmProvider } from './types.js';
 import { GeminiProvider } from './gemini.js';
+import { AnthropicProvider } from './anthropic.js';
+import { OpenAIProvider } from './openai.js';
+
+function requireEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) throw new Error(`${name} environment variable is required`);
+  return value;
+}
 
 /** Factory — creates the right provider based on prompt config. */
 export function createProvider(prompt: PromptFile): LlmProvider {
   switch (prompt.model.provider) {
-    case 'gemini': {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) throw new Error('GEMINI_API_KEY environment variable is required');
-      return new GeminiProvider(apiKey);
-    }
+    case 'gemini':
+      return new GeminiProvider(requireEnv('GEMINI_API_KEY'));
     case 'anthropic':
-      throw new Error('Anthropic provider not implemented yet');
+      return new AnthropicProvider(requireEnv('ANTHROPIC_API_KEY'));
     case 'openai':
-      throw new Error('OpenAI provider not implemented yet');
+      return new OpenAIProvider(requireEnv('OPENAI_API_KEY'));
   }
 }
 

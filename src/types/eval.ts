@@ -6,6 +6,7 @@ const AssertionSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('matches_regex'), value: z.string() }),
   z.object({ type: z.literal('max_length'), value: z.number().positive() }),
   z.object({ type: z.literal('is_json') }),
+  z.object({ type: z.literal('llm_judge'), criteria: z.string() }),
 ]);
 
 export const TestCaseSchema = z.object({
