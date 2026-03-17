@@ -1,40 +1,46 @@
 import 'dotenv/config';
 import { Command } from 'commander';
 import { resolve } from 'node:path';
+import { writeFile } from 'node:fs/promises';
 import { loadPromptWithEval } from './loaders/prompt-loader.js';
 import { createProvider } from './providers/index.js';
 import { runEval, type EvalResult } from './engine/runner.js';
 import { saveBaseline, loadBaseline, compareWithBaseline } from './engine/baseline.js';
+import { generateReport } from './engine/report.js';
 
 const program = new Command();
 
 program.name('prompt-ci').description('CI/CD quality gate for LLM prompts').version('0.1.0');
 
 /** Shared helper: load prompt, run eval, print results. */
-async function executeEval(promptFile: string): Promise<EvalResult> {
+async function executeEval(promptFile: string, quiet = false): Promise<EvalResult> {
   const promptPath = resolve(promptFile);
   const { prompt, evalSuite } = await loadPromptWithEval(promptPath);
 
-  console.log(`Prompt: ${prompt.name} v${prompt.version}`);
-  console.log(`Model:  ${prompt.model.provider}/${prompt.model.name}`);
-  console.log(`Suite:  ${evalSuite.name} (${evalSuite.cases.length} cases)\n`);
+  if (!quiet) {
+    console.log(`Prompt: ${prompt.name} v${prompt.version}`);
+    console.log(`Model:  ${prompt.model.provider}/${prompt.model.name}`);
+    console.log(`Suite:  ${evalSuite.name} (${evalSuite.cases.length} cases)\n`);
+  }
 
   const provider = createProvider(prompt);
   const result = await runEval(prompt, evalSuite, provider);
 
-  for (const c of result.cases) {
-    const icon = c.passed ? '✓' : '✗';
-    console.log(`${icon} ${c.caseId} (${c.latencyMs}ms, ${c.tokens} tokens)`);
-    for (const a of c.assertions) {
-      const aIcon = a.passed ? '  ✓' : '  ✗';
-      console.log(`${aIcon} ${a.detail}`);
+  if (!quiet) {
+    for (const c of result.cases) {
+      const icon = c.passed ? '✓' : '✗';
+      console.log(`${icon} ${c.caseId} (${c.latencyMs}ms, ${c.tokens} tokens)`);
+      for (const a of c.assertions) {
+        const aIcon = a.passed ? '  ✓' : '  ✗';
+        console.log(`${aIcon} ${a.detail}`);
+      }
     }
-  }
 
-  console.log('\n--- Metrics ---');
-  console.log(`Accuracy:     ${(result.metrics.accuracy * 100).toFixed(1)}%`);
-  console.log(`Avg latency:  ${result.metrics.avgLatencyMs}ms`);
-  console.log(`Total tokens: ${result.metrics.totalTokens}`);
+    console.log('\n--- Metrics ---');
+    console.log(`Accuracy:     ${(result.metrics.accuracy * 100).toFixed(1)}%`);
+    console.log(`Avg latency:  ${result.metrics.avgLatencyMs}ms`);
+    console.log(`Total tokens: ${result.metrics.totalTokens}`);
+  }
 
   return result;
 }
@@ -110,6 +116,34 @@ program
 
     const verdictIcon = { pass: '✓ PASS', warn: '⚠ WARN', fail: '✗ FAIL' };
     console.log(`\nVerdict: ${verdictIcon[comparison.verdict]}`);
+
+    if (comparison.verdict === 'fail') {
+      process.exit(1);
+    }
+  });
+
+// --- ci command (used by GitHub Actions) ---
+program
+  .command('ci')
+  .description('Run eval, compare baseline, output markdown report (for CI)')
+  .argument('<prompt-file>', 'Path to the prompt YAML file')
+  .option('--threshold <number>', 'Max allowed accuracy drop (0-1)', '0.05')
+  .option('--report-file <path>', 'Write markdown report to file', 'report.md')
+  .action(async (promptFile: string, opts: { threshold: string; reportFile: string }) => {
+    const result = await executeEval(promptFile, true);
+    const baseline = await loadBaseline(result.promptName);
+
+    if (!baseline) {
+      console.error(`No baseline found for "${result.promptName}". Run baseline:save first.`);
+      process.exit(1);
+    }
+
+    const threshold = parseFloat(opts.threshold);
+    const comparison = compareWithBaseline(baseline, result, threshold);
+    const report = generateReport(result, comparison);
+
+    await writeFile(opts.reportFile, report + '\n');
+    console.log(report);
 
     if (comparison.verdict === 'fail') {
       process.exit(1);

@@ -1,0 +1,92 @@
+name: Prompt Eval
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'prompts/**'
+      - 'evals/**'
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Detect changed prompts
+        id: changed
+        run: |
+          FILES=$(git diff --name-only ${{ github.event.pull_request.base.sha }} HEAD -- 'prompts/*.yaml' | tr '\n' ' ')
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+          if [ -z "$FILES" ]; then
+            echo "No prompt files changed"
+          else
+            echo "Changed prompts: $FILES"
+          fi
+
+      - name: Run eval for changed prompts
+        if: steps.changed.outputs.files != ''
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: |
+          VERDICT="pass"
+          REPORT=""
+          for PROMPT_FILE in ${{ steps.changed.outputs.files }}; do
+            echo "Evaluating: $PROMPT_FILE"
+            if npx tsx src/cli.ts ci "$PROMPT_FILE" --report-file report.md; then
+              REPORT+=$(cat report.md)
+            else
+              REPORT+=$(cat report.md)
+              VERDICT="fail"
+            fi
+            REPORT+=$'\n\n---\n\n'
+          done
+
+          echo "$REPORT" > combined-report.md
+
+          if [ "$VERDICT" = "fail" ]; then
+            echo "::error::Prompt eval regression detected"
+            echo "verdict=fail" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Comment on PR
+        if: steps.changed.outputs.files != '' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('combined-report.md', 'utf-8');
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const botComment = comments.find(c =>
+              c.body.includes('🐸 Prompt CI Report')
+            );
+            const body = report;
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
