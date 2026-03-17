@@ -1,6 +1,3 @@
-# Eval suite для промпта summarize
-# Каждый case — это один тестовый прогон
-
 name: summarize-eval
 description: "Tests for the summarize prompt"
 
@@ -16,6 +13,8 @@ cases:
         value: "I cannot"
       - type: max_length
         value: 500
+      - type: llm_judge
+        criteria: "The summary captures the main topic (protein structure prediction) and mentions the potential impact (drug discovery)"
 
   - id: long-article
     description: "Longer technical text"

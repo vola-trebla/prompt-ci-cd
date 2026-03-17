@@ -24,15 +24,29 @@ export interface EvalResult {
   };
 }
 
+export interface RunOptions {
+  /** Provider for llm_judge assertions. Falls back to main provider if not set. */
+  judgeProvider?: LlmProvider;
+  /** Max concurrent LLM calls. Default: 3 */
+  concurrency?: number;
+}
+
 /** Runs a single test case: render template → call LLM → check assertions. */
 async function runCase(
   prompt: PromptFile,
   testCase: TestCase,
   provider: LlmProvider,
+  judgeProvider?: LlmProvider,
 ): Promise<CaseResult> {
   const renderedPrompt = renderTemplate(prompt.template, testCase.variables ?? {});
   const response = await provider.generate(renderedPrompt, prompt.model.name);
-  const assertions = checkAssertions(response.text, testCase.assertions);
+
+  const hasJudge = testCase.assertions.some((a) => a.type === 'llm_judge');
+  const assertions = await checkAssertions(
+    response.text,
+    testCase.assertions,
+    hasJudge ? (judgeProvider ?? provider) : undefined,
+  );
   const passed = assertions.every((a) => a.passed);
 
   return {
@@ -45,18 +59,34 @@ async function runCase(
   };
 }
 
-/** Runs all test cases in an eval suite and computes aggregate metrics. */
+/** Runs promises in batches of `concurrency` at a time. */
+async function runWithConcurrency<T>(
+  tasks: (() => Promise<T>)[],
+  concurrency: number,
+): Promise<T[]> {
+  const results: T[] = [];
+  for (let i = 0; i < tasks.length; i += concurrency) {
+    const batch = tasks.slice(i, i + concurrency);
+    const batchResults = await Promise.all(batch.map((fn) => fn()));
+    results.push(...batchResults);
+  }
+  return results;
+}
+
+/** Runs all test cases in an eval suite (parallel) and computes aggregate metrics. */
 export async function runEval(
   prompt: PromptFile,
   evalSuite: EvalSuite,
   provider: LlmProvider,
+  options: RunOptions = {},
 ): Promise<EvalResult> {
-  const cases: CaseResult[] = [];
+  const { judgeProvider, concurrency = 3 } = options;
 
-  for (const testCase of evalSuite.cases) {
-    const result = await runCase(prompt, testCase, provider);
-    cases.push(result);
-  }
+  const tasks = evalSuite.cases.map(
+    (testCase: TestCase) => () => runCase(prompt, testCase, provider, judgeProvider),
+  );
+
+  const cases = await runWithConcurrency(tasks, concurrency);
 
   const passedCount = cases.filter((c) => c.passed).length;
   const totalLatency = cases.reduce((sum, c) => sum + c.latencyMs, 0);
