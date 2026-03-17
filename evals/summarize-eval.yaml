@@ -1,0 +1,38 @@
+# Eval suite для промпта summarize
+# Каждый case — это один тестовый прогон
+
+name: summarize-eval
+description: "Tests for the summarize prompt"
+
+cases:
+  - id: short-article
+    description: "Short news article about AI"
+    variables:
+      text: "Artificial intelligence researchers at Google DeepMind announced a breakthrough in protein structure prediction. The new model, AlphaFold 3, can predict the structure of proteins, DNA, RNA, and small molecules with unprecedented accuracy. This advancement could accelerate drug discovery and help scientists understand diseases at the molecular level."
+    assertions:
+      - type: contains
+        value: "protein"
+      - type: not_contains
+        value: "I cannot"
+      - type: max_length
+        value: 500
+
+  - id: long-article
+    description: "Longer technical text"
+    variables:
+      text: "Machine learning operations, or MLOps, is a set of practices that combines machine learning, DevOps, and data engineering. The goal is to deploy and maintain ML systems in production reliably and efficiently. Key components include experiment tracking, model versioning, automated testing, continuous integration and deployment pipelines, and monitoring. Companies like Netflix, Uber, and Airbnb have invested heavily in MLOps infrastructure to scale their ML capabilities. Common tools include MLflow for experiment tracking, Kubeflow for orchestration, and various feature stores for managing training data."
+    assertions:
+      - type: contains
+        value: "MLOps"
+      - type: max_length
+        value: 600
+      - type: not_contains
+        value: "As an AI"
+
+  - id: edge-case-empty-ish
+    description: "Very short text to summarize"
+    variables:
+      text: "It rained today."
+    assertions:
+      - type: max_length
+        value: 200

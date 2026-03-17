@@ -1,0 +1,20 @@
+# Промпт для суммаризации текста
+# Это пример того, как промпт хранится в репозитории
+
+name: summarize
+version: "1.0.0"
+description: "Summarizes a given text into a concise paragraph"
+
+model:
+  provider: gemini
+  name: gemini-2.5-flash
+
+# Путь к eval suite — относительно этого файла
+eval_suite: "../evals/summarize-eval.yaml"
+
+# Сам промпт. {{variables}} подставляются из test case
+template: |
+  Summarize the following text in 2-3 sentences.
+  Keep the key facts and be concise.
+
+  Text: {{text}}
