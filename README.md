@@ -1,4 +1,4 @@
-# 🐸 prompt-ci-cd
+# prompt-ci-cd
 
 > CI/CD quality gate for LLM prompts — eval, baseline comparison, regression detection.
 
